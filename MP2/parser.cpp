@@ -130,3 +130,50 @@ ASTNode parseStatement(const std::string& code, size_t& pos) {
     }
     return node;
 }
+
+// Identifies and parses the next single construct
+ASTNode parseOne(const std::string& code, size_t& pos) {
+    skipSpaces(code, pos);
+
+    if (isKeyword(code, pos, "for")) {
+        return parseFor(code, pos);
+    }
+    if (isKeyword(code, pos, "if")) {
+        return parseIf(code, pos);
+    }
+    return parseStatement(code, pos);
+}
+
+// Pasring a complete block of code into a list of AST nodes
+ParsedProgram parseString(const std::string& code) {
+    ParsedProgram program;
+    size_t pos = 0;
+
+    while (pos < code.length()) {
+        skipSpaces(code, pos);
+        if (pos >= code.length()) break;
+
+        // Skip standalone stray semicolons
+        if (code[pos] == ';') {
+            pos++;
+            continue;
+        }
+
+        ASTNode node = parseOne(code, pos);
+        if (node.type == NodeType::STATEMENT && node.text.empty()) {
+            continue;
+        }
+        program.push_back(node);
+    }
+
+    return program;
+}
+
+// The main entry point for merging lines and triggering parsing
+ParsedProgram parseCode(const std::vector<std::string>& lines) {
+    std::string fullCode = "";
+    for (const std::string& line : lines) {
+        fullCode += line + "\n";
+    }
+    return parseString(fullCode);
+}
