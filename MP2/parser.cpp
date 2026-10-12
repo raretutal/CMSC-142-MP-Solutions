@@ -51,7 +51,7 @@ ASTNode parseFor(const std::string& code, size_t& pos){
 
     std::string header = code.substr(openParen + 1, closeParen - openParen - 1);
     size_t semi1 = header.find(';');
-    size_t semi2 = header.find(':', semi1 + 1);
+    size_t semi2 = header.find(';', semi1 + 1);
 
     node.init = stripTypes(trim(header.substr(0, semi1)));
     node.condition = trim(header.substr(semi1 + 1, semi2 - semi1 - 1));
