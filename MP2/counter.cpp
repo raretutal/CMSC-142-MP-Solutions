@@ -57,6 +57,72 @@ int countStatementOps(const std::string& stmt){
             i++;
             continue;
         }
-
+        // Handle '-' and differentiate from negative number literals
+        if (c == '-') {
+            bool isNegativeLiteral = false;
+            if (i + 1 < stmt.length() && std::isdigit(static_cast<unsigned char>(stmt[i + 1]))) {
+                int prev = static_cast<int>(i) - 1;
+                while (prev >= 0 && (stmt[prev] == ' ' || stmt[prev] == '\t')) {
+                    prev--;
+                }
+                if (prev < 0 || stmt[prev] == '=' || stmt[prev] == '(' || stmt[prev] == ',') {
+                    isNegativeLiteral = true;
+                }
+            }
+            if (!isNegativeLiteral) {
+                count++;
+            }
+            i++;
+            continue;
+        }
+        i++;
     }
+    return count;
+}
+
+void analyzeLoop(const ASTNode& loopNode, std::string& termName, int& step){
+    step = 1;
+
+    // Check condition for root terms
+    int mulInCond = 0;
+    for (char c : loopNode.condition) {
+        if (c == '*') mulInCond++;
+    }
+    
+    if(mulInCond >= 2) {
+        termName = "cubert(n)";
+        return;
+    }
+    if (mulInCond == 1) {
+        termName = "sqrt(n)";
+        return;
+    }
+    
+    // Check update for logarithmic step
+    if (loopNode.update.find("*=") != std::string::npos) {
+        size_t pos = loopNode.update.find("*=");
+        std::string baseStr = trim(loopNode.update.substr(pos + 2));
+        termName = "log(" + baseStr + ")n";
+        return;
+    }
+    if (loopNode.update.find("/=") != std::string::npos) {
+        size_t pos = loopNode.update.find("/=");
+        std::string baseStr = trim(loopNode.update.substr(pos + 2));
+        termName = "log(" + baseStr + ")n";
+        return;
+    }
+
+    // Check update for linear step size
+    if (loopNode.update.find("+=") != std::string::npos) {
+        size_t pos = loopNode.update.find("+=");
+        std::string stepStr = trim(loopNode.update.substr(pos + 2));
+        try {
+            int s = std::stoi(stepStr);
+            if (s > 0) step = s;
+        } catch (...) {
+            step = 1;
+        }
+    }
+
+    termName = "n";
 }
