@@ -16,7 +16,7 @@ struct ASTNode {
 
     // components for for() header 
     std::string init; 
-    std::string conidition;
+    std::string condition;
     std::string update;
 
     
