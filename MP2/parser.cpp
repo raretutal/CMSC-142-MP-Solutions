@@ -60,5 +60,73 @@ ASTNode parseFor(const std::string& code, size_t& pos){
     pos = closeParen + 1;
     skipSpaces(code, pos);
 
-    
+    // Extracting body - either braced { } or a single statement
+    if (pos < code.length() && code[pos] == '{') {
+        size_t closeBrace = findClosing(code, pos, '{', '}');
+        std::string innerCode = code.substr(pos + 1, closeBrace - pos - 1);
+        node.body = parseString(innerCode);
+        pos = closeBrace + 1;
+    } else {
+        node.body.push_back(parseOne(code, pos));
+    }
+    return node;
+}
+
+// Parsing or if statement, its body, and an optional else branch
+ASTNode parseIf(const std::string& code, size_t& pos){
+    ASTNode node;
+    node.type = NodeType::IF_BLOCK;
+
+    pos += 2; // Skipping "if"
+    skipSpaces(code, pos);
+
+    size_t openParen = code.find('(', pos);
+    size_t closeParen = findClosing(code, openParen, '(', ')');
+
+    node.condition = trim(code.substr(openParen + 1, closeParen - openParen - 1));
+    pos = closeParen + 1;
+    skipSpaces(code, pos);
+
+    // Extracting If body
+    if (pos < code.length() && code[pos] == '{'){
+            size_t closeBrace = findClosing(code, pos, '{', '}');
+            std::string innerCode = code.substr(pos + 1, closeBrace - pos - 1);
+            node.body = parseString(innerCode);
+            pos = closeBrace + 1;
+    } else {
+        node.body.push_back(parseOne(code, pos));
+    }
+
+    // Checking for optional else branch
+    skipSpaces(code, pos);
+    if (isKeyword(code, pos, "else")) {
+        pos += 4; // Skip "else";
+        skipSpaces(code, pos);
+
+        if (pos < code.length() && code[pos] == '{') {
+            size_t closeBrace = findClosing(code, pos, '{', '}');
+            std::string innerCode = code.substr(pos + 1, closeBrace - pos - 1);
+            node.elseBody = parseString(innerCode);
+            pos = closeBrace + 1;  
+        } else {
+            node.elseBody.push_back(parseOne(code, pos));
+        }
+    }
+    return node;
+}
+
+// Parsing ordinary statement ending with a semicolon
+ASTNode parseStatement(const std::string& code, size_t& pos) {
+    ASTNode node;
+    node.type = NodeType::STATEMENT;
+
+    size_t semi = code.find(';', pos);
+    if (semi != std::string::npos) {
+        node.text = stripTypes(trim(code.substr(pos, semi - pos)));
+        pos = semi + 1;
+    } else {
+        node.text = stripTypes(trim(code.substr(pos)));
+        pos = code.length();
+    }
+    return node;
 }
