@@ -11,36 +11,115 @@ void Complexity::add(const Complexity& other){
     }
 }
 
+namespace {
+
+std::string formatTerm(const std::string& name, int coeff, bool isFirst) {
+    std::string s = "";
+    int absCoeff = std::abs(coeff);
+
+    if (coeff < 0) {
+        s += isFirst ? "-" : " - ";
+    } else {
+        if (!isFirst) s += " + ";
+    }
+
+    if (name.rfind("log", 0) == 0) {
+        if (absCoeff == 1) {
+            s += name;
+        } else {
+            s += std::to_string(absCoeff) + " " + name;
+        }
+    } else if (name == "sqrt(n)" || name == "cubert(n)") {
+        if (absCoeff == 1) {
+            s += name;
+        } else {
+            s += std::to_string(absCoeff) + " " + name;
+        }
+    } else if (name == "n") {
+        if (absCoeff == 1) {
+            s += "n";
+        } else {
+            s += std::to_string(absCoeff) + "n";
+        }
+    } else if (name.find('/') != std::string::npos) {
+        // For fractional term (e.g., "8n/5", "9n/4"), already includes its coefficient
+        s += name;
+    } else {
+        // For Secondary variable terms (e.g., "m", "x", "y", "z")
+        if (absCoeff == 1) {
+            s += name;
+        } else {
+            s += std::to_string(absCoeff) + name;
+        }
+    }
+    return s;
+}
+
+void parseInitExpr(const std::string& initStr, std::string& startVar, int& startConst, bool& hasN) {
+    startVar = "";
+    startConst = 0;
+    hasN = false;
+
+    size_t eqPos = initStr.find('=');
+    if (eqPos == std::string::npos) return;
+
+    std::string rhs = trim(initStr.substr(eqPos + 1));
+    if (rhs.find('n') != std::string::npos) {
+        hasN = true;
+    }
+
+    std::string var = "";
+    for (char c : rhs) {
+        if (std::isalpha(static_cast<unsigned char>(c)) && c != 'n') {
+            var += c;
+        }
+    }
+    startVar = var;
+
+    if (!startVar.empty()) {
+        size_t minusPos = rhs.find('-');
+        size_t plusPos = rhs.find('+');
+        if (minusPos != std::string::npos) {
+            try { startConst = -std::stoi(trim(rhs.substr(minusPos + 1))); } catch (...) { startConst = 0; }
+        } else if (plusPos != std::string::npos) {
+            try { startConst = std::stoi(trim(rhs.substr(plusPos + 1))); } catch (...) { startConst = 0; }
+        } else {
+            startConst = 0;
+        }
+    } else if (!hasN) {
+        try { startConst = std::stoi(rhs); } catch (...) { startConst = 0; }
+    }
+}
+
+} // namespace
+
 std::string Complexity::toString() const {
+    if (terms.count("infinite") && terms.at("infinite") > 0) {
+        return "infinite";
+    }
+
     std::string result = "T(n) = ";
     bool hasTerms = false;
 
-    for (const auto& pair : terms){
-        if (pair.second == 0) continue;
-        if (hasTerms) result += " + ";
-
-        if (pair.first.rfind("log", 0) == 0) {
-            if (pair.second == 1) {
-                result += pair.first;
-            } else {
-                result += std::to_string(pair.second) + " " + pair.first;
-            }
-        } else if (pair.first == "n") {
-            if (pair.second == 1) {
-                result += "n";
-            } else {
-                result += std::to_string(pair.second) + "n";
-            }
-        } else {
-            if (pair.second == 1) {
-                result += pair.first;
-            } else {
-                result += std::to_string(pair.second) + pair.first;
-            }
+    // 1. Primary terms containing 'n' (n, fractions of n, log, sqrt, cubert)
+    for (const auto& pair : terms) {
+        if (pair.second == 0 || pair.first == "infinite") continue;
+        if (pair.first.find('n') != std::string::npos) {
+            result += formatTerm(pair.first, pair.second, !hasTerms);
+            hasTerms = true;
         }
-        hasTerms = true;
     }
 
+    // 2. Secondary variable terms (m, x, y, z)
+    for (const auto& pair : terms) {
+        if (pair.second == 0 || pair.first == "infinite") continue;
+        if (pair.first.find('n') == std::string::npos) {
+            result += formatTerm(pair.first, pair.second, !hasTerms);
+            hasTerms = true;
+        }
+    }
+
+    // 3. Constant term
     if (hasTerms) {
         if (constantOps > 0) {
             result += " + " + std::to_string(constantOps);
@@ -213,18 +292,31 @@ Complexity calculateNodeCost(const ASTNode& node) {
         int overhead = initOps + condOps;
         int perIterOps = condOps + updateOps + bodyComp.constantOps;
 
-        int startVal = 0;
-        size_t eqPos = node.init.find('=');
-        if (eqPos != std::string::npos) {
-            try {
-                startVal = std::stoi(trim(node.init.substr(eqPos + 1)));
-            } catch (...) {
-                startVal = 0;
+        std::string startVar = "";
+        int startConst = 0;
+        bool hasNInInit = false;
+        parseInitExpr(node.init, startVar, startConst, hasNInInit);
+
+        // Case 1: Iterator starts at 'n' and condition checks <= or < with a small number (0 iterations)
+        if (hasNInInit && (node.condition.find("<=") != std::string::npos ||
+                           node.condition.find('<') != std::string::npos)) {
+            comp.constantOps = overhead;
+            return comp;
+        }
+
+        // Case 2: Infinite loops (decrementing update while condition checks <= or < against 'n')
+        bool isDec = (node.update.find("--") != std::string::npos ||
+                      node.update.find("-=") != std::string::npos);
+        if (isDec && (node.condition.find("<=") != std::string::npos ||
+                      node.condition.find('<') != std::string::npos)) {
+            if (!hasNInInit) {
+                comp.terms["infinite"] = 1;
+                return comp;
             }
         }
 
-        // Loop with constant bound (no 'n' in condition)
-        if (node.condition.find('n') == std::string::npos) {
+        // Case 3: Loop with constant bounds (neither init nor condition contains 'n')
+        if (node.condition.find('n') == std::string::npos && !hasNInInit) {
             bool isLeOrGe = (node.condition.find("<=") != std::string::npos ||
                              node.condition.find(">=") != std::string::npos);
             size_t opPos = node.condition.find_first_of("<>");
@@ -245,13 +337,14 @@ Complexity calculateNodeCost(const ASTNode& node) {
             }
             if (step <= 0) step = 1;
 
-            int iterations = isLeOrGe ? (std::abs(limit - startVal) + 1) / step
-                                      : std::abs(limit - startVal) / step;
+            int iterations = isLeOrGe ? (std::abs(limit - startConst) + 1) / step
+                                      : std::abs(limit - startConst) / step;
 
             comp.constantOps = overhead + iterations * perIterOps;
             return comp;
         }
 
+        // Case 4: Non-linear complexity (sqrt, cubert, log)
         std::string termName;
         int step = 1;
         analyzeLoop(node, termName, step);
@@ -268,9 +361,10 @@ Complexity calculateNodeCost(const ASTNode& node) {
             return comp;
         }
 
-        // Linear loop with 'n'
+        // Case 5: Linear loops (with 'n' and potential variable bounds)
         bool isLe = (node.condition.find("<=") != std::string::npos ||
                      node.condition.find(">=") != std::string::npos);
+        int inclusiveOffset = isLe ? 1 : 0;
 
         int nOffset = 0;
         size_t nPos = node.condition.find('n');
@@ -278,30 +372,34 @@ Complexity calculateNodeCost(const ASTNode& node) {
             size_t plusPos = node.condition.find('+', nPos);
             size_t minusPos = node.condition.find('-', nPos);
             if (plusPos != std::string::npos) {
-                try {
-                    nOffset = std::stoi(trim(node.condition.substr(plusPos + 1)));
-                } catch (...) {}
+                try { nOffset = std::stoi(trim(node.condition.substr(plusPos + 1))); } catch (...) {}
             } else if (minusPos != std::string::npos) {
-                try {
-                    nOffset = -std::stoi(trim(node.condition.substr(minusPos + 1)));
-                } catch (...) {}
+                try { nOffset = -std::stoi(trim(node.condition.substr(minusPos + 1))); } catch (...) {}
             }
         }
 
-        int constIterOffset = isLe ? (nOffset + 1 - startVal) / step
-                                   : (nOffset - startVal) / step;
+        int totalConstantShift = nOffset - startConst + inclusiveOffset;
 
         if (step == 1) {
             comp.terms["n"] = perIterOps;
+            if (!startVar.empty()) {
+                comp.terms[startVar] = -perIterOps;
+            }
+            comp.constantOps = overhead + perIterOps * totalConstantShift;
         } else {
+            // Fraction formatting for linear steps > 1
             if (perIterOps % step == 0) {
                 comp.terms["n"] = perIterOps / step;
             } else {
                 comp.terms[std::to_string(perIterOps) + "n/" + std::to_string(step)] = 1;
             }
+            if (!startVar.empty()) {
+                comp.terms[startVar] = -perIterOps / step;
+            }
+            // For step > 1, overhead is not modified by start constant shift
+            comp.constantOps = overhead;
         }
 
-        comp.constantOps = overhead + constIterOffset * perIterOps;
         return comp;
     }
 
